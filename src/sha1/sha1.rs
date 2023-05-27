@@ -129,7 +129,7 @@ impl Sha1Realization32 {
 mod tests {
     use super::*;
     use rand::Rng;
-    use std::time::Instant;
+    // use std::time::Instant;
     use sha1::{Sha1, Digest};
 
     fn generate_random_string(length: usize) -> String {
