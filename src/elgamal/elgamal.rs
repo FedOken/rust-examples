@@ -221,4 +221,5 @@ mod tests {
         assert_eq!(verify_result, false)
     }
 }
+
 // cargo test -- elgamal --nocapture
