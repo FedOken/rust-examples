@@ -6,6 +6,7 @@ Run test: `cargo test -- ec_wrapper --nocapture`
 
 ####  Test result example
 ```
-running 1 test
-test elliptical_curve::ec_wrapper::tests::test ... ok
+running 2 tests
+test elliptical_curve::ec_wrapper::tests::test_points ... ok
+test elliptical_curve::ec_wrapper::tests::test_diffie_hellman ... ok
 ```
