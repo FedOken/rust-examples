@@ -1,5 +1,7 @@
 pub mod kata_5_1;
 pub mod kata_5_2;
+pub mod kata_5_3;
+pub mod kata_5_4;
 pub mod kata_6_1;
 pub mod kata_6_2;
 pub mod kata_6_3;

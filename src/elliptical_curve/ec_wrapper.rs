@@ -76,7 +76,7 @@ impl ECPoint {
         new_point
     }
 
-    fn multiply_point(&self, mut scalar: BigInt) -> Self {
+    pub fn multiply_point(&self, mut scalar: BigInt) -> Self {
         let one: BigInt = BigInt::from(1);
 
         let mut result = self.clone();
@@ -101,9 +101,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test() {
+    fn test_points() {
         // https://learn.ztu.edu.ua/pluginfile.php/196084/mod_resource/content/1/%D0%9B%D0%B5%D0%BA%D1%86%D1%96%D1%8F12.pdf
 
+        // y^2 = x^3 + a*x + b (mod p)
         // y^2 = x^3 + x + 1 (mod 23)
         let curve = ECurve::create(BigInt::from(1), BigInt::from(1), BigInt::from(23));
 
@@ -145,6 +146,42 @@ mod tests {
         // Check is P on curve
         let p = ECPoint::create(BigInt::from(4), BigInt::from(4), curve.clone());
         assert_eq!(p.is_point_on_curve(), false);
+    }
+
+    #[test]
+    fn test_diffie_hellman() {
+        // https://learn.ztu.edu.ua/pluginfile.php/196084/mod_resource/content/1/%D0%9B%D0%B5%D0%BA%D1%86%D1%96%D1%8F12.pdf
+
+        // y^2 = x^3 + a*x + b (mod p)
+        // y^2 = x^3 + -2 * x + 15 (mod 23)
+        let curve = ECurve::create(BigInt::from(-2), BigInt::from(15), BigInt::from(23));
+
+        // g(4,5)
+        let g = ECPoint::create(BigInt::from(4), BigInt::from(5), curve.clone());
+
+        let user_a_private_key = BigInt::from(3);
+        let user_b_private_key = BigInt::from(7);
+
+        // <user_a_private_key>*G = <user_a_public_key>(13,22)
+        let user_a_public_key = g.multiply_point(user_a_private_key.clone());
+        assert_eq!(user_a_public_key.x, BigInt::from(13));
+        assert_eq!(user_a_public_key.y, BigInt::from(22));
+
+        // <user_b_private_key>*G = <user_b_public_key>(13,22)
+        let user_b_public_key = g.multiply_point(user_b_private_key.clone());
+        assert_eq!(user_b_public_key.x, BigInt::from(17));
+        assert_eq!(user_b_public_key.y, BigInt::from(8));
+
+        // Main assertion
+        // <user_b_public_key>*<user_a_private_key> = <user_a_private_key_diffie>(15,5)
+        let user_a_private_key_diffie = user_b_public_key.multiply_point(user_a_private_key);
+        assert_eq!(user_a_private_key_diffie.x, BigInt::from(15));
+        assert_eq!(user_a_private_key_diffie.y, BigInt::from(5));
+
+        // <user_A_public_key>*<user_b_private_key> = <user_b_private_key_diffie>(15,5)
+        let user_b_private_key_diffie = user_a_public_key.multiply_point(user_b_private_key);
+        assert_eq!(user_b_private_key_diffie.x, BigInt::from(15));
+        assert_eq!(user_b_private_key_diffie.y, BigInt::from(5));
     }
 }
 
