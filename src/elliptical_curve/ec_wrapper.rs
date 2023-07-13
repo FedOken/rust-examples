@@ -1,6 +1,39 @@
-use num_bigint::{BigInt};
+use num_bigint::{BigUint,BigInt};
+use hex;
+
+#[cfg(test)]
+use std::collections::HashMap;
+
+pub fn hex_to_number(hex: String) -> BigInt {
+    let hex: Vec<u8> = hex::decode(hex).expect("Decoding failed");
+    BigInt::from(BigUint::from_bytes_be(&hex))
+}
+
+pub fn calculate_inverse_modulo(k: BigInt, p: BigInt) -> BigInt {
+    let (_, x, _) = extended_euclidean_algorithm(k, p.clone());
+
+    let result = (x % &p + &p) % &p;
+
+    result
+}
+
+pub fn extended_euclidean_algorithm(a: BigInt, b: BigInt) -> (BigInt, BigInt, BigInt) {
+    let zero = BigInt::from(0);
+    let one = BigInt::from(1);
+
+    if b == zero {
+        return (a, one, zero);
+    }
+
+    let (d, x1, y1) = extended_euclidean_algorithm(b.clone(), a.clone() % b.clone());
+    let x = y1.clone();
+    let y = x1 - (&a / &b) * y1;
+
+    (d, x, y)
+}
 
 // y^2 = x^3 + ax + b (mod p)
+#[cfg(test)]
 #[derive(Clone)]
 struct ECurve {
     a: BigInt,
@@ -8,12 +41,14 @@ struct ECurve {
     p: BigInt,
 }
 
+#[cfg(test)]
 impl ECurve {
     pub fn create(a: BigInt, b: BigInt, p: BigInt) -> Self {
         Self { a, b, p }
     }
 }
 
+#[cfg(test)]
 #[derive(Clone)]
 struct ECPoint {
     x: BigInt,
@@ -21,6 +56,7 @@ struct ECPoint {
     curve: ECurve,
 }
 
+#[cfg(test)]
 impl ECPoint {
     pub fn create(x: BigInt, y: BigInt, curve: ECurve) -> Self {
         Self { x, y, curve }
@@ -54,16 +90,13 @@ impl ECPoint {
         let x2 = &point.x;
         let y2 = &point.y;
 
-        let mut num = BigInt::from(0);
-        let mut den = BigInt::from(0);
+        let mut num = (y2 - y1).modpow(&one, p);
+        let mut den = (x2 - x1).modpow(&BigInt::from(p - 2), p);
         if x1.eq(x2) && y1.eq(y2) {
             num = (BigInt::from(3) * (x1.pow(2)) + a).modpow(&one, p);
             den = (BigInt::from(2) * y1).modpow(&BigInt::from(p - 2), p);
-        } else {
-            num = (y2 - y1).modpow(&one, p);
-            den = (x2 - x1).modpow(&BigInt::from(p - 2), p);
         }
-        let m = (&num * &den).modpow(&one, p);
+        let m = (num * den).modpow(&one, p);
 
         let x3 = (m.pow(2) - x1 - x2).modpow(&one, p);
         let y3 = (m * (x1 - &x3) - y1).modpow(&one, p);
@@ -76,23 +109,72 @@ impl ECPoint {
         new_point
     }
 
-    pub fn multiply_point(&self, mut scalar: BigInt) -> Self {
+    pub fn multiply_point(&self, scalar: BigInt) -> Self {
         let one: BigInt = BigInt::from(1);
 
-        let mut result = self.clone();
-        let current = self.clone();
-
         if scalar == one {
-            return result;
+            return self.clone();
         }
-    
-        while scalar > one {
-            result = result.add_point(&current);
 
-            scalar = scalar - &one;
+        let mut multiply_result = self.clone();
+
+
+        let mut multiply_results: HashMap<BigInt, ECPoint> = HashMap::new();
+        multiply_results.insert(one.clone(), self.clone());
+
+        let mut multiplier = BigInt::from(2);
+    
+        while multiplier <= scalar {
+            multiply_result = multiply_result.add_point(&multiply_result);
+
+            multiply_results.insert(multiplier.clone(), multiply_result.clone());
+
+            multiplier = multiplier * 2;
+        }
+
+        let mut multiply_results_sorted: Vec<(&BigInt, &ECPoint)> = multiply_results.iter().collect();
+        multiply_results_sorted.sort_by_key(|a| -a.0);
+
+
+        multiplier = multiply_results_sorted[0].0.clone();
+        for (key, point) in multiply_results_sorted.iter().skip(1) {
+            let multiplier_new = &multiplier + key.clone();
+            if multiplier_new > scalar {
+                continue;
+            }
+
+            multiply_result = multiply_result.add_point(&point);
+            multiplier = multiplier_new;
         }
     
-        result
+        multiply_result
+    }
+
+    pub fn sign(&self, d: BigInt, k: BigInt, z: BigInt) -> (BigInt, BigInt) {
+        let one: BigInt = BigInt::from(1);
+        let g = self.clone();
+
+        let kg = g.multiply_point(k.clone());
+        let r = kg.x.modpow(&one, &g.curve.p);
+        let k_pow_minus_one = calculate_inverse_modulo(k.clone(), g.curve.p.clone());
+        let s = (k_pow_minus_one * (z + &r * d)) % g.curve.p;
+
+        return (r, s)
+    }
+
+    pub fn sign_verify(&self, r: BigInt, s: BigInt, z: BigInt, q: ECPoint) -> bool {
+        let g = self.clone();
+
+        let w = calculate_inverse_modulo(s.clone(), g.curve.p.clone()) % &g.curve.p;
+        let u1 = (z * &w) % &g.curve.p;
+        let u2 = (&r * &w) % &g.curve.p;
+
+        let u1g = g.multiply_point(u1.clone());
+        let u2q = q.multiply_point(u2.clone());
+
+        let signature_point = u1g.add_point(&u2q);
+
+        return r == signature_point.x % &g.curve.p;
     }
 }
 
@@ -182,6 +264,36 @@ mod tests {
         let user_b_private_key_diffie = user_a_public_key.multiply_point(user_b_private_key);
         assert_eq!(user_b_private_key_diffie.x, BigInt::from(15));
         assert_eq!(user_b_private_key_diffie.y, BigInt::from(5));
+    }
+
+    #[test]
+    fn test_ecdsa_sign() {
+        // https://learn.ztu.edu.ua/pluginfile.php/196084/mod_resource/content/1/%D0%9B%D0%B5%D0%BA%D1%86%D1%96%D1%8F12.pdf
+
+        //// Input params
+        // y^2 = x^3 + a*x + b (mod p)
+        // y^2 = x^3 + -2 * x + 15 (mod 23)
+        let curve = ECurve::create(BigInt::from(-2), BigInt::from(15), BigInt::from(23));
+        // g(4,5)
+        let g = ECPoint::create(BigInt::from(4), BigInt::from(5), curve.clone());
+
+        let hex_string = hex::encode("Hello World!");
+        let private_key = BigInt::from(3);
+        let k = BigInt::from(19);
+        //// End
+
+        let hex_num = hex_to_number(hex_string);
+
+        let public_key: ECPoint = g.multiply_point(private_key.clone());
+        assert_eq!(public_key.x, BigInt::from(13));
+        assert_eq!(public_key.y, BigInt::from(22));
+
+        let (r, s) = g.sign(private_key, k, hex_num.clone());
+        assert_eq!(r, BigInt::from(9));
+        assert_eq!(s, BigInt::from(19));
+
+        let is_valid = g.sign_verify(r, s, hex_num.clone(), public_key);
+        assert_eq!(is_valid, true);
     }
 }
 
